@@ -10,8 +10,61 @@ import { broadcastState } from './index';
 
 let downloading = false;
 
-export function isDownloading(): boolean {
-  return downloading;
+export function isDownloading(): boolean { return downloading; }
+
+/** Download ONLY VTT subtitle files (fast, targeted) */
+export async function downloadVttsOnly(): Promise<void> {
+  if (downloading) return;
+
+  let state = await loadState();
+  if (!state.course) {
+    state = appendLog(state, 'error', 'No course data. Run scan first.');
+    await saveState(state); await broadcastState(state); return;
+  }
+
+  const vtts: Array<{ resource: Resource; modIdx: number; modTotal: number; modTitle: string; lessonIdx: number; lessonTotal: number; lessonTitle: string }> = [];
+
+  state.course.modules.forEach((mod, mi) => {
+    mod.lessons.forEach((lesson, li) => {
+      lesson.resources.forEach((r) => {
+        if (r.type === 'vtt' && r.status === 'downloadable_allowed') {
+          vtts.push({
+            resource: r, modIdx: mi, modTotal: state.course!.modules.length,
+            modTitle: mod.title, lessonIdx: li, lessonTotal: mod.lessons.length, lessonTitle: lesson.title,
+          });
+        }
+      });
+    });
+  });
+
+  if (vtts.length === 0) {
+    state = appendLog(state, 'warn', 'No VTT files to download. Run scan first.');
+    await saveState(state); await broadcastState(state); return;
+  }
+
+  downloading = true;
+  state.status = 'downloading';
+  state = appendLog(state, 'info', `Downloading ${vtts.length} VTT subtitle file(s)…`);
+  await saveState(state); await broadcastState(state);
+
+  try {
+    for (const item of vtts) {
+      const { resource: r, modIdx, modTotal, modTitle, lessonIdx, lessonTotal, lessonTitle } = item;
+      const savePath = buildSavePath({
+        courseTitle: state.course!.title,
+        moduleIndex: modIdx, moduleTotal: modTotal, moduleTitle: modTitle,
+        lessonIndex: lessonIdx, lessonTotal: lessonTotal, lessonTitle: lessonTitle,
+        filename: r.filename,
+      });
+      await downloadResource(r, savePath);
+    }
+  } finally {
+    downloading = false;
+    let done = await loadState();
+    done.status = 'scan_complete';
+    done = appendLog(done, 'success', 'VTT downloads complete.');
+    await saveState(done); await broadcastState(done);
+  }
 }
 
 export async function startDownloads(): Promise<void> {

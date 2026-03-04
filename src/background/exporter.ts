@@ -1,138 +1,260 @@
 /**
- * Generates JSON and Markdown export of the discovered course structure.
- * Both formats are downloaded to the user's machine via chrome.downloads (data URLs).
+ * Generates exports:
+ *  - course-index.json / .md  → full course structure
+ *  - m3u8-index.json / .md    → focused map: every m3u8 URL with its VTT subtitles
  */
 
 import type { CourseData, Resource } from '../shared/types';
 
-// ─── JSON export ───────────────────────────────────────────────────────────
+// ─── Types for the m3u8 / VTT index ───────────────────────────────────────
+
+export interface M3u8Entry {
+  playlistUrl: string;
+  /** VTT subtitle files found inside this playlist */
+  subtitles: string[];
+  pageUrl: string;
+  pageTitle: string;
+  downloadStatus: Resource['status'];
+}
+
+export interface SiteIndex {
+  generatedAt: string;
+  startUrl: string;
+  courseTitle: string;
+  totalPagesVisited: number;
+  totalM3u8: number;
+  totalVtt: number;
+  totalOtherResources: number;
+  /** Ordered list of all visited pages with their resources */
+  pages: PageEntry[];
+  /** Flat deduplicated list of every m3u8 found, with all linked VTT URLs */
+  m3u8Index: M3u8Entry[];
+}
+
+interface PageEntry {
+  url: string;
+  title: string;
+  visitedAt?: string;
+  m3u8: string[];
+  vtts: string[];
+  otherResources: Array<{ url: string; type: string }>;
+}
+
+// ─── Build site index from course state ───────────────────────────────────
+
+export function buildSiteIndex(course: CourseData): SiteIndex {
+  const pages: PageEntry[] = [];
+  const m3u8Map = new Map<string, M3u8Entry>();
+
+  for (const mod of course.modules) {
+    for (const lesson of mod.lessons) {
+      const m3u8List: string[] = [];
+      const vttList: string[] = [];
+      const others: Array<{ url: string; type: string }> = [];
+
+      for (const res of lesson.resources) {
+        if (res.type === 'm3u8') {
+          m3u8List.push(res.url);
+          // Collect or update the m3u8 entry
+          if (!m3u8Map.has(res.url)) {
+            m3u8Map.set(res.url, {
+              playlistUrl: res.url,
+              subtitles: res.subtitleUrls ?? [],
+              pageUrl: lesson.url,
+              pageTitle: lesson.title,
+              downloadStatus: res.status,
+            });
+          }
+        } else if (res.type === 'vtt') {
+          vttList.push(res.url);
+          // Link VTT back to its parent m3u8 entry (if known)
+          if (res.parentM3u8Url) {
+            const parent = m3u8Map.get(res.parentM3u8Url);
+            if (parent && !parent.subtitles.includes(res.url)) {
+              parent.subtitles.push(res.url);
+            }
+          }
+        } else {
+          others.push({ url: res.url, type: res.type });
+        }
+      }
+
+      if (lesson.visited || lesson.resources.length > 0) {
+        pages.push({
+          url: lesson.url,
+          title: lesson.title,
+          visitedAt: lesson.visitedAt,
+          m3u8: m3u8List,
+          vtts: vttList,
+          otherResources: others,
+        });
+      }
+    }
+  }
+
+  const allVtts = new Set<string>();
+  m3u8Map.forEach((e) => e.subtitles.forEach((v) => allVtts.add(v)));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    startUrl: course.url,
+    courseTitle: course.title,
+    totalPagesVisited: pages.length,
+    totalM3u8: m3u8Map.size,
+    totalVtt: allVtts.size,
+    totalOtherResources: pages.reduce((s, p) => s + p.otherResources.length, 0),
+    pages,
+    m3u8Index: Array.from(m3u8Map.values()),
+  };
+}
+
+// ─── Markdown index ────────────────────────────────────────────────────────
+
+export function buildM3u8IndexMarkdown(idx: SiteIndex): string {
+  const lines: string[] = [];
+
+  lines.push(`# ${idx.courseTitle} – m3u8 & Subtitle Index`);
+  lines.push('');
+  lines.push(`- **Generated:** ${idx.generatedAt}`);
+  lines.push(`- **Start URL:** ${idx.startUrl}`);
+  lines.push(`- **Pages visited:** ${idx.totalPagesVisited}`);
+  lines.push(`- **m3u8 playlists:** ${idx.totalM3u8}`);
+  lines.push(`- **VTT subtitle files:** ${idx.totalVtt}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  if (idx.m3u8Index.length === 0) {
+    lines.push('> No m3u8 playlists were found during the scan.');
+    return lines.join('\n');
+  }
+
+  lines.push('## Playlist Index');
+  lines.push('');
+
+  idx.m3u8Index.forEach((entry, i) => {
+    lines.push(`### ${i + 1}. [${entry.pageTitle}](${entry.pageUrl})`);
+    lines.push('');
+    lines.push(`**Playlist:** \`${entry.playlistUrl}\``);
+    lines.push('');
+
+    if (entry.subtitles.length === 0) {
+      lines.push('_No subtitle tracks found in this playlist._');
+    } else {
+      lines.push(`**Subtitles (${entry.subtitles.length}):**`);
+      entry.subtitles.forEach((vtt) => {
+        lines.push(`- \`${vtt}\``);
+      });
+    }
+    lines.push('');
+  });
+
+  lines.push('---');
+  lines.push('');
+  lines.push('## All Pages');
+  lines.push('');
+  lines.push('| Page | m3u8 | VTT | Other |');
+  lines.push('|------|-----:|----:|------:|');
+
+  idx.pages.forEach((p) => {
+    const title = `[${p.title.replace(/\|/g, '–')}](${p.url})`;
+    lines.push(`| ${title} | ${p.m3u8.length} | ${p.vtts.length} | ${p.otherResources.length} |`);
+  });
+
+  lines.push('');
+  lines.push('---');
+  lines.push('> Generated by Course Library Exporter. Only downloads explicitly provided files.');
+
+  return lines.join('\n');
+}
+
+// ─── Full course JSON/MD export ────────────────────────────────────────────
 
 export function buildJsonExport(course: CourseData): string {
   return JSON.stringify(course, null, 2);
 }
 
-// ─── Markdown export ───────────────────────────────────────────────────────
-
 export function buildMarkdownExport(course: CourseData): string {
   const lines: string[] = [];
-
   lines.push(`# ${course.title}`);
   lines.push('');
   lines.push(`- **URL:** ${course.url}`);
-  lines.push(`- **Domain:** ${course.domain}`);
   lines.push(`- **Scanned at:** ${course.scannedAt}`);
-  if (course.completedAt) lines.push(`- **Scan completed:** ${course.completedAt}`);
   lines.push('');
 
-  // Summary stats
   const totalLessons = course.modules.reduce((s, m) => s + m.lessons.length, 0);
-  const totalResources = course.modules.reduce(
-    (s, m) => s + m.lessons.reduce((ls, l) => ls + l.resources.length, 0),
-    0,
-  );
-  lines.push(`**${course.modules.length} modules · ${totalLessons} lessons · ${totalResources} resources**`);
+  const totalRes = course.modules.reduce(
+    (s, m) => s + m.lessons.reduce((ls, l) => ls + l.resources.length, 0), 0);
+  lines.push(`**${course.modules.length} modules · ${totalLessons} lessons · ${totalRes} resources**`);
   lines.push('');
   lines.push('---');
   lines.push('');
 
   for (const mod of course.modules) {
-    lines.push(`## ${padNum(mod.index + 1, course.modules.length)} – ${mod.title}`);
+    lines.push(`## ${pad(mod.index + 1, course.modules.length)} – ${mod.title}`);
     lines.push('');
-
-    if (mod.lessons.length === 0) {
-      lines.push('_No lessons discovered._');
-      lines.push('');
-      continue;
-    }
-
     for (const lesson of mod.lessons) {
-      lines.push(
-        `### ${padNum(lesson.index + 1, mod.lessons.length)} – [${lesson.title}](${lesson.url})`,
-      );
+      lines.push(`### ${pad(lesson.index + 1, mod.lessons.length)} – [${lesson.title}](${lesson.url})`);
       lines.push('');
-
-      if (!lesson.visited) {
-        lines.push('> ⚠️ This lesson was not visited during the scan.');
-        lines.push('');
-        continue;
-      }
-
       if (lesson.resources.length === 0) {
-        lines.push('_No downloadable resources found._');
-        lines.push('');
-        continue;
+        lines.push('_No resources._');
+      } else {
+        lines.push('| File | Type | Status |');
+        lines.push('|------|------|--------|');
+        lesson.resources.forEach((r) => {
+          const link = `[${r.filename}](${r.url})`;
+          const st = statusEmoji(r.status) + ' ' + r.status.replace(/_/g, ' ');
+          lines.push(`| ${link} | ${r.type.toUpperCase()} | ${st} |`);
+        });
       }
-
-      lines.push('| File | Type | Status | Path |');
-      lines.push('|------|------|--------|------|');
-
-      for (const res of lesson.resources) {
-        const link = `[${res.filename}](${res.url})`;
-        const type = res.type.toUpperCase();
-        const status = statusEmoji(res.status) + ' ' + res.status.replace(/_/g, ' ');
-        const path = res.downloadPath ? `\`${res.downloadPath}\`` : '–';
-        lines.push(`| ${link} | ${type} | ${status} | ${path} |`);
-      }
-
       lines.push('');
     }
   }
-
-  lines.push('---');
-  lines.push('');
-  lines.push('> *Generated by Course Library Exporter. This extension only downloads explicitly provided files.*');
-  lines.push('> *It does not bypass DRM, paywalls, or any access controls.*');
-
   return lines.join('\n');
 }
 
 // ─── Download helpers ──────────────────────────────────────────────────────
 
-/** Trigger a browser download for a text string */
-export function downloadText(filename: string, content: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
+function downloadText(filename: string, content: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-
   chrome.downloads.download(
     { url, filename, saveAs: false, conflictAction: 'uniquify' },
-    () => {
-      // Revoke after a delay to allow the download to start
-      setTimeout(() => URL.revokeObjectURL(url), 5_000);
-    },
+    () => { setTimeout(() => URL.revokeObjectURL(url), 5_000); },
   );
 }
 
 export function exportCourse(course: CourseData): void {
-  const safeTitle = course.title.replace(/[/\\:*?"<>|]/g, '-').slice(0, 60);
-  const datestamp = new Date().toISOString().slice(0, 10);
+  const safe = course.title.replace(/[/\\:*?"<>|]/g, '-').slice(0, 60);
+  const date = new Date().toISOString().slice(0, 10);
+  const base = `Course Library Exporter/${safe}/`;
 
-  downloadText(
-    `Course Library Exporter/${safeTitle}/${safeTitle}-${datestamp}.json`,
-    buildJsonExport(course),
-    'application/json',
-  );
+  downloadText(base + `${safe}-${date}.json`, buildJsonExport(course), 'application/json');
+  downloadText(base + `${safe}-${date}.md`, buildMarkdownExport(course), 'text/markdown');
+}
 
-  downloadText(
-    `Course Library Exporter/${safeTitle}/${safeTitle}-${datestamp}.md`,
-    buildMarkdownExport(course),
-    'text/markdown',
-  );
+export function exportM3u8Index(course: CourseData): void {
+  const safe = course.title.replace(/[/\\:*?"<>|]/g, '-').slice(0, 60);
+  const date = new Date().toISOString().slice(0, 10);
+  const base = `Course Library Exporter/${safe}/`;
+  const idx = buildSiteIndex(course);
+
+  downloadText(base + `m3u8-index-${date}.json`, JSON.stringify(idx, null, 2), 'application/json');
+  downloadText(base + `m3u8-index-${date}.md`, buildM3u8IndexMarkdown(idx), 'text/markdown');
 }
 
 // ─── Utility ───────────────────────────────────────────────────────────────
 
-function padNum(n: number, total: number): string {
-  const digits = String(total).length;
-  return String(n).padStart(digits, '0');
+function pad(n: number, total: number): string {
+  return String(n).padStart(Math.max(2, String(total).length), '0');
 }
 
-function statusEmoji(status: Resource['status']): string {
-  switch (status) {
+function statusEmoji(s: Resource['status']): string {
+  switch (s) {
     case 'download_complete': return '✅';
     case 'download_started': return '⬇️';
     case 'download_failed': return '❌';
     case 'skipped_streaming': return '⏭️';
-    case 'downloadable_allowed': return '🔗';
-    default: return '🔍';
+    default: return '🔗';
   }
 }

@@ -109,8 +109,18 @@ export default function App() {
     chrome.runtime.sendMessage({ type: MSG.START_DOWNLOAD });
   }, []);
 
+  const handleDownloadVtts = useCallback(() => {
+    chrome.runtime.sendMessage({ type: MSG.DOWNLOAD_VTTS });
+  }, []);
+
   const handleExport = useCallback(() => {
     chrome.runtime.sendMessage({ type: MSG.EXPORT_INDEX }, (res: { error?: string }) => {
+      if (res?.error) alert(res.error);
+    });
+  }, []);
+
+  const handleExportM3u8Index = useCallback(() => {
+    chrome.runtime.sendMessage({ type: MSG.EXPORT_M3U8_INDEX }, (res: { error?: string }) => {
       if (res?.error) alert(res.error);
     });
   }, []);
@@ -154,7 +164,9 @@ export default function App() {
         onPause={handlePause}
         onResume={handleResume}
         onDownload={handleDownload}
-        onExport={handleExport}
+        onDownloadVtts={handleDownloadVtts}
+        onExportIndex={handleExport}
+        onExportM3u8Index={handleExportM3u8Index}
         onClear={handleClear}
         onToggleOptions={() => dispatch({ type: 'TOGGLE_OPTIONS' })}
         showOptions={ui.showOptions}

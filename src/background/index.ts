@@ -8,8 +8,8 @@ import { MSG } from '../shared/messages';
 import type { StartScanPayload, UpdateOptionsPayload, ChromeMessage } from '../shared/messages';
 import { loadState, saveState, clearState, appendLog, updateOptions } from './storage';
 import { startCrawl, pauseCrawl, resumeCrawl } from './crawler';
-import { startDownloads } from './downloader';
-import { exportCourse } from './exporter';
+import { startDownloads, downloadVttsOnly } from './downloader';
+import { exportCourse, exportM3u8Index } from './exporter';
 
 // ─── Message listener ──────────────────────────────────────────────────────
 
@@ -52,13 +52,27 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
       return { ok: true };
     }
 
+    case MSG.DOWNLOAD_VTTS: {
+      downloadVttsOnly().catch(console.error);
+      return { ok: true };
+    }
+
     case MSG.EXPORT_INDEX: {
       const state = await loadState();
       if (state.course) {
         exportCourse(state.course);
         return { ok: true };
       }
-      return { error: 'No course data available. Run scan first.' };
+      return { error: 'No course data. Run scan first.' };
+    }
+
+    case MSG.EXPORT_M3U8_INDEX: {
+      const state = await loadState();
+      if (state.course) {
+        exportM3u8Index(state.course);
+        return { ok: true };
+      }
+      return { error: 'No course data. Run scan first.' };
     }
 
     case MSG.UPDATE_OPTIONS: {
