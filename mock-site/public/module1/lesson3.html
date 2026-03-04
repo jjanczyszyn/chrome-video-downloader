@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lesson 1.3 – Video Deep Dive (HLS) | Advanced TypeScript Mastery</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+    h1 { color: #a78bfa; }
+    .breadcrumb { color: #666; margin-bottom: 16px; font-size: 13px; }
+    .breadcrumb a { color: #888; text-decoration: none; }
+    .player-container { background: #000; border-radius: 8px; padding: 20px; margin-top: 16px; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+    .player-placeholder { color: #555; font-size: 14px; text-align: center; }
+    .resource-block { background: #16213e; border-radius: 8px; padding: 20px; margin-top: 24px; }
+    .resource-block h3 { margin-top: 0; color: #e94560; }
+    .download-link { display: inline-flex; align-items: center; gap: 8px; color: #a78bfa; padding: 8px 16px; background: #0f3460; border-radius: 6px; text-decoration: none; margin: 6px 4px; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+  <div class="breadcrumb">
+    <a href="/course.html" data-course-title="Advanced TypeScript Mastery">Advanced TypeScript Mastery</a>
+    › <span data-module-title="Module 1: Foundations">Module 1: Foundations</span>
+    › <span data-lesson-title="Lesson 1.3 – Video Deep Dive (HLS)">Lesson 1.3</span>
+  </div>
+
+  <h1>Lesson 1.3 – Video Deep Dive (HLS)</h1>
+  <p>This lesson includes an HLS (HTTP Live Streaming) video. The extension should detect the m3u8 playlist URL and download it along with subtitle tracks.</p>
+
+  <!-- Simulated HLS player (like Video.js / JW Player would inject) -->
+  <div class="player-container">
+    <div class="player-placeholder">
+      [Video player – HLS stream]<br/>
+      <small>Playlist: /assets/playlist.m3u8</small>
+    </div>
+  </div>
+
+  <!-- HLS video with track -->
+  <video controls style="width:100%;margin-top:12px;" data-src="/assets/playlist.m3u8">
+    <source src="/assets/playlist.m3u8" type="application/vnd.apple.mpegurl" />
+    <track kind="subtitles" src="/assets/subtitles.vtt" srclang="en" label="English" default />
+  </video>
+
+  <!--
+    Some players store their config in JS. This simulates a JWPlayer / Video.js
+    setup where the m3u8 URL appears in a script tag.
+  -->
+  <script>
+    var playerConfig = {
+      file: "http://localhost:3456/assets/playlist.m3u8",
+      tracks: [
+        { file: "http://localhost:3456/assets/subtitles.vtt", kind: "captions", label: "English" }
+      ]
+    };
+    // In a real player: jwplayer('player').setup(playerConfig);
+  </script>
+
+  <div class="resource-block">
+    <h3>📎 Resources</h3>
+    <a class="download-link" href="/assets/playlist.m3u8">
+      📺 Download HLS Playlist (m3u8)
+    </a>
+    <a class="download-link" href="/assets/subtitles.vtt">
+      💬 Download Subtitles (VTT)
+    </a>
+  </div>
+
+  <nav class="sidebar" style="margin-top:32px;">
+    <a href="/course.html">← Back to Course</a>
+    <a href="/module1/lesson1.html">Lesson 1.1</a>
+    <a href="/module1/lesson2.html">Lesson 1.2</a>
+    <a href="/module1/lesson3.html">Lesson 1.3</a>
+    <a href="/module2/lesson1.html">Lesson 2.1</a>
+  </nav>
+
+</body>
+</html>
